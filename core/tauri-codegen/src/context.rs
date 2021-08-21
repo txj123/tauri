@@ -54,12 +54,15 @@ pub fn context_codegen(data: ContextData) -> Result<TokenStream, EmbeddedAssetsE
             path
           )
         }
-        EmbeddedAssets::new(&assets_path, options)?
+        EmbeddedAssets::new(assets_path, options)?
       }
       _ => unimplemented!(),
     },
-    AppUrl::Files(files) => EmbeddedAssets::load_paths(
-      files.iter().map(|p| config_parent.join(p)).collect(),
+    AppUrl::Files(files) => EmbeddedAssets::new(
+      files
+        .iter()
+        .map(|p| config_parent.join(p))
+        .collect::<Vec<_>>(),
       options,
     )?,
     _ => unimplemented!(),

@@ -6,6 +6,7 @@ use kuchiki::traits::*;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens, TokenStreamExt};
 use regex::RegexSet;
+use sha2::{Digest, Sha256};
 use std::{
   collections::HashMap,
   ffi::OsStr,
@@ -17,7 +18,7 @@ use tauri_utils::{
   html::{inject_csp, inject_invoke_key_token},
 };
 use thiserror::Error;
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 /// The subdirectory inside the target directory we want to place assets.
 const TARGET_PATH: &str = "tauri-codegen-assets";
@@ -69,6 +70,115 @@ pub enum EmbeddedAssetsError {
 #[derive(Default)]
 pub struct EmbeddedAssets(HashMap<AssetKey, (PathBuf, PathBuf)>);
 
+pub struct EmbeddedAssetsInput(Vec<PathBuf>);
+
+impl From<PathBuf> for EmbeddedAssetsInput {
+  fn from(path: PathBuf) -> Self {
+    Self(vec![path])
+  }
+}
+
+impl From<Vec<PathBuf>> for EmbeddedAssetsInput {
+  fn from(paths: Vec<PathBuf>) -> Self {
+    Self(paths)
+  }
+}
+
+/// Holds a list of (prefix, entry)
+struct RawEmbeddedAssets {
+  paths: Vec<(PathBuf, DirEntry)>,
+  csp_hashes: CspHashes,
+}
+
+impl RawEmbeddedAssets {
+  /// Creates a new list of (prefix, entry) from a collection of inputs.
+  fn new(input: EmbeddedAssetsInput) -> Result<Self, EmbeddedAssetsError> {
+    let mut csp_hashes = CspHashes::default();
+
+    input
+      .0
+      .into_iter()
+      .flat_map(|path| {
+        let prefix = if path.is_dir() {
+          path.clone()
+        } else {
+          path
+            .parent()
+            .expect("embedded file asset has no parent")
+            .to_path_buf()
+        };
+
+        WalkDir::new(&path)
+          .follow_links(true)
+          .contents_first(true)
+          .into_iter()
+          .map(move |entry| (prefix.clone(), entry))
+      })
+      .filter_map(|(prefix, entry)| {
+        match entry {
+          // we only serve files, not directory listings
+          Ok(entry) if entry.file_type().is_dir() => None,
+
+          // compress all files encountered
+          Ok(entry) => {
+            if let Err(error) = csp_hashes.add_if_applicable(&entry) {
+              Some(Err(error))
+            } else {
+              Some(Ok((prefix, entry)))
+            }
+          }
+
+          // pass down error through filter to fail when encountering any error
+          Err(error) => Some(Err(EmbeddedAssetsError::Walkdir {
+            path: prefix,
+            error,
+          })),
+        }
+      })
+      .collect::<Result<Vec<(PathBuf, DirEntry)>, _>>()
+      .map(|paths| Self { paths, csp_hashes })
+  }
+}
+
+/// Holds all hashes that we will apply on the CSP tag/header.
+#[derive(Default)]
+struct CspHashes {
+  scripts: Vec<String>,
+}
+
+impl CspHashes {
+  /// Only add a CSP hash to the appropriate category if we think the file matches
+  ///
+  /// Note: this only checks the file extension, much like how a browser will assume a .js file is
+  /// a JavaScript file unless HTTP headers tell it otherwise.
+  pub fn add_if_applicable(&mut self, entry: &DirEntry) -> Result<(), EmbeddedAssetsError> {
+    let path = entry.path();
+
+    // we only hash JavaScript files for now, may expand to other CSP hashable types in the future
+    if let Some("js") = path.extension().and_then(|os| os.to_str()) {
+      let mut hasher = Sha256::new();
+      hasher.update(
+        &std::fs::read(path).map_err(|error| EmbeddedAssetsError::AssetRead {
+          path: path.to_path_buf(),
+          error,
+        })?,
+      );
+      let hash = hasher.finalize();
+      self.scripts.push(format!("'sha256-{}'", base64::encode(hash)))
+    }
+
+    Ok(())
+  }
+}
+
+impl From<&CspHashes> for HashMap<String, String> {
+  fn from(hashes: &CspHashes) -> Self {
+    let mut map = HashMap::new();
+    map.insert("script-src".into(), hashes.scripts.join(" "));
+    map
+  }
+}
+
 /// Options used to embed assets.
 #[derive(Default)]
 pub struct AssetOptions {
@@ -89,70 +199,24 @@ impl AssetOptions {
 }
 
 impl EmbeddedAssets {
-  /// Compress a directory of assets, ready to be generated into a [`tauri_utils::assets::Assets`].
-  pub fn new(path: &Path, options: AssetOptions) -> Result<Self, EmbeddedAssetsError> {
-    WalkDir::new(&path)
-      .follow_links(true)
-      .into_iter()
-      .filter_map(|entry| match entry {
-        // we only serve files, not directory listings
-        Ok(entry) if entry.file_type().is_dir() => None,
-
-        // compress all files encountered
-        Ok(entry) => Some(Self::compress_file(path, entry.path(), &options)),
-
-        // pass down error through filter to fail when encountering any error
-        Err(error) => Some(Err(EmbeddedAssetsError::Walkdir {
-          path: path.to_owned(),
-          error,
-        })),
-      })
-      .collect::<Result<_, _>>()
-      .map(Self)
-  }
-
-  /// Compress a list of files and directories.
-  pub fn load_paths(
-    paths: Vec<PathBuf>,
+  /// Compress a collection of files and directories, ready to be generated into [`Assets`].
+  ///
+  /// [`Assets`]: tauri_utils::assets::Assets
+  pub fn new(
+    input: impl Into<EmbeddedAssetsInput>,
     options: AssetOptions,
   ) -> Result<Self, EmbeddedAssetsError> {
-    Ok(Self(
-      paths
-        .iter()
-        .map(|path| {
-          let is_file = path.is_file();
-          WalkDir::new(&path)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(|entry| {
-              match entry {
-                // we only serve files, not directory listings
-                Ok(entry) if entry.file_type().is_dir() => None,
+    // we need to pre-compute all files now, so that we can inject data from all files into a few
+    let RawEmbeddedAssets {
+      paths,
+      csp_hashes: hashes,
+    } = RawEmbeddedAssets::new(input.into())?;
 
-                // compress all files encountered
-                Ok(entry) => Some(Self::compress_file(
-                  if is_file {
-                    path.parent().unwrap()
-                  } else {
-                    path
-                  },
-                  entry.path(),
-                  &options,
-                )),
-
-                // pass down error through filter to fail when encountering any error
-                Err(error) => Some(Err(EmbeddedAssetsError::Walkdir {
-                  path: path.to_path_buf(),
-                  error,
-                })),
-              }
-            })
-            .collect::<Result<Vec<Asset>, _>>()
-        })
-        .flatten()
-        .flatten()
-        .collect::<_>(),
-    ))
+    paths
+      .into_iter()
+      .map(|(prefix, entry)| Self::compress_file(&prefix, entry.path(), &options, &hashes))
+      .collect::<Result<_, _>>()
+      .map(Self)
   }
 
   /// Use highest compression level for release, the fastest one for everything else
@@ -170,6 +234,7 @@ impl EmbeddedAssets {
     prefix: &Path,
     path: &Path,
     options: &AssetOptions,
+    hashes: &CspHashes,
   ) -> Result<Asset, EmbeddedAssetsError> {
     let mut input = std::fs::read(path).map_err(|error| EmbeddedAssetsError::AssetRead {
       path: path.to_owned(),
@@ -178,7 +243,7 @@ impl EmbeddedAssets {
     if path.extension() == Some(OsStr::new("html")) {
       let mut document = kuchiki::parse_html().one(String::from_utf8_lossy(&input).into_owned());
       if let Some(csp) = &options.csp {
-        inject_csp(&mut document, csp);
+        inject_csp(&mut document, csp, dbg!(hashes.into()));
       }
       inject_invoke_key_token(&mut document);
       input = document.to_string().as_bytes().to_vec();
