@@ -68,7 +68,7 @@ pub enum EmbeddedAssetsError {
 /// through [`ToTokens`]. The generated code is meant to be injected into an application to include
 /// the compressed assets in that application's binary.
 #[derive(Default)]
-pub struct EmbeddedAssets(HashMap<AssetKey, (PathBuf, PathBuf)>);
+pub struct EmbeddedAssets(HashMap<AssetKey, (PathBuf, PathBuf)>, CspHashes);
 
 pub struct EmbeddedAssetsInput(Vec<PathBuf>);
 
@@ -214,9 +214,9 @@ impl EmbeddedAssets {
 
     paths
       .into_iter()
-      .map(|(prefix, entry)| Self::compress_file(&prefix, entry.path(), &options, &hashes))
+      .map(|(prefix, entry)| Self::compress_file(&prefix, entry.path(), &options))
       .collect::<Result<_, _>>()
-      .map(Self)
+      .map(|f| Self(f, hashes))
   }
 
   /// Use highest compression level for release, the fastest one for everything else
@@ -234,7 +234,6 @@ impl EmbeddedAssets {
     prefix: &Path,
     path: &Path,
     options: &AssetOptions,
-    hashes: &CspHashes,
   ) -> Result<Asset, EmbeddedAssetsError> {
     let mut input = std::fs::read(path).map_err(|error| EmbeddedAssetsError::AssetRead {
       path: path.to_owned(),
@@ -243,7 +242,7 @@ impl EmbeddedAssets {
     if path.extension() == Some(OsStr::new("html")) {
       let mut document = kuchiki::parse_html().one(String::from_utf8_lossy(&input).into_owned());
       if let Some(csp) = &options.csp {
-        inject_csp(&mut document, csp, dbg!(hashes.into()));
+        inject_csp(&mut document, csp);
       }
       inject_invoke_key_token(&mut document);
       input = document.to_string().as_bytes().to_vec();
@@ -349,6 +348,10 @@ impl EmbeddedAssets {
       })?;
 
     Ok((key, (path.into(), out_path)))
+  }
+
+  pub fn hashes(&self) -> HashMap<String, String> {
+    (&self.1).into()
   }
 }
 

@@ -68,6 +68,17 @@ pub fn context_codegen(data: ContextData) -> Result<TokenStream, EmbeddedAssetsE
     _ => unimplemented!(),
   };
 
+  let csp_hashes = assets.hashes();
+  let mut csp = String::new();
+  let mut first_csp = true;
+  for (directive, policy) in csp_hashes {
+    csp.push_str(&format!("{} {};", directive, policy));
+    if !first_csp {
+      csp.push(' ');
+    }
+    first_csp = false
+  }
+
   // handle default window icons for Windows targets
   let default_window_icon = if cfg!(windows) {
     let icon_path = find_icon(
@@ -174,6 +185,7 @@ pub fn context_codegen(data: ContextData) -> Result<TokenStream, EmbeddedAssetsE
     #system_tray_icon,
     #package_info,
     #info_plist,
+    #csp
   )))
 }
 

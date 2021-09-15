@@ -73,6 +73,7 @@ pub struct InnerWindowManager<R: Runtime> {
   config: Arc<Config>,
   assets: Arc<dyn Assets>,
   default_window_icon: Option<Vec<u8>>,
+  csp: &'static str,
 
   package_info: PackageInfo,
   /// The webview protocols protocols available to all windows.
@@ -157,6 +158,7 @@ impl<R: Runtime> WindowManager<R> {
     window_event_listeners: Vec<GlobalWindowEventListener<R>>,
     (menu, menu_event_listeners): (Option<Menu>, Vec<GlobalMenuEventListener<R>>),
   ) -> Self {
+    let csp = context.csp;
     Self {
       inner: Arc::new(InnerWindowManager {
         windows: Mutex::default(),
@@ -180,6 +182,7 @@ impl<R: Runtime> WindowManager<R> {
         menu,
         menu_event_listeners: Arc::new(menu_event_listeners),
         window_event_listeners: Arc::new(window_event_listeners),
+        csp
       }),
       invoke_keys: Default::default(),
     }
@@ -413,7 +416,9 @@ impl<R: Runtime> WindowManager<R> {
   {
     let assets = self.inner.assets.clone();
     let manager = self.clone();
+    let csp = self.inner.csp;
     Box::new(move |request| {
+      let mut is_index = false;
       let mut path = request
         .uri()
         .split(&['?', '#'][..])
@@ -430,6 +435,7 @@ impl<R: Runtime> WindowManager<R> {
         .to_string();
       let path = if path.is_empty() {
         // if the url is `tauri://localhost`, we should load `index.html`
+        is_index = true;
         "index.html".to_string()
       } else {
         // skip leading `/`
@@ -437,6 +443,8 @@ impl<R: Runtime> WindowManager<R> {
       };
       let is_javascript = path.ends_with(".js") || path.ends_with(".cjs") || path.ends_with(".mjs");
       let is_html = path.ends_with(".html");
+
+      dbg!(&path);
 
       let asset_response = assets
         .get(&path.as_str().into())
@@ -465,8 +473,12 @@ impl<R: Runtime> WindowManager<R> {
           };
 
           let mime_type = MimeType::parse(&final_data, &path);
+          let mut response =             HttpResponseBuilder::new();
+          if dbg!(is_index) {
+            response = response.header("Content-Security-Policy", dbg!(&format!("default-src 'self'; {}",csp)))
+          }
           Ok(
-            HttpResponseBuilder::new()
+              response
               .mimetype(&mime_type)
               .body(final_data)?,
           )

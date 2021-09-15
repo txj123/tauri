@@ -154,6 +154,9 @@ pub struct Context<A: Assets> {
   pub(crate) system_tray_icon: Option<Icon>,
   pub(crate) package_info: crate::PackageInfo,
   pub(crate) _info_plist: (),
+
+  // todo: super experimental
+  pub(crate) csp: &'static str,
 }
 
 impl<A: Assets> fmt::Debug for Context<A> {
@@ -237,6 +240,9 @@ impl<A: Assets> Context<A> {
     system_tray_icon: Option<Icon>,
     package_info: crate::PackageInfo,
     info_plist: (),
+
+    // todo: experimental: use a new constructor to prevent breaking change if wanted
+    csp: &'static str
   ) -> Self {
     Self {
       config,
@@ -245,6 +251,7 @@ impl<A: Assets> Context<A> {
       system_tray_icon,
       package_info,
       _info_plist: info_plist,
+      csp
     }
   }
 }

@@ -79,12 +79,9 @@ pub fn inject_invoke_key_token(document: &mut NodeRef) {
 }
 
 /// Injects a content security policy to the HTML.
-pub fn inject_csp(document: &mut NodeRef, csp: &str, hashes: HashMap<String, String>) {
+pub fn inject_csp(document: &mut NodeRef, csp: &str) {
   if let Ok(ref head) = document.select_first("head") {
     //head.as_node().append(create_csp_meta_tag(csp));
-    for tag in create_csp_meta_tag_hashes(hashes) {
-      head.as_node().append(tag);
-    }
   } else {
     let head = NodeRef::new_element(
       QualName::new(None, ns!(html), LocalName::from("head")),
@@ -115,30 +112,6 @@ fn create_csp_meta_tag(csp: &str) -> NodeRef {
       ),
     ],
   )
-}
-
-fn create_csp_meta_tag_hashes(hashes: HashMap<String, String>) -> impl Iterator<Item = NodeRef> {
-  hashes.into_iter().map(|(name, hashes)| {
-    NodeRef::new_element(
-      QualName::new(None, ns!(html), LocalName::from("meta")),
-      vec![
-        (
-          ExpandedName::new(ns!(), LocalName::from("http-equiv")),
-          Attribute {
-            prefix: None,
-            value: "Content-Security-Policy".into(),
-          },
-        ),
-        (
-          ExpandedName::new(ns!(), LocalName::from("content")),
-          Attribute {
-            prefix: None,
-            value: format!("{} {};", name, hashes),
-          },
-        ),
-      ],
-    )
-  })
 }
 
 #[cfg(test)]
