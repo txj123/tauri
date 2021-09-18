@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::InvokeResponse;
+#[cfg(any(dialog_open, dialog_save))]
 #[cfg(any(windows, target_os = "macos"))]
 use crate::api::dialog::window_parent;
 #[cfg(any(dialog_open, dialog_save))]
