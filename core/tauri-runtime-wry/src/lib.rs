@@ -1631,6 +1631,7 @@ impl Runtime for Wry {
     )?;
 
     #[cfg(target_os = "windows")]
+    // add_GotFocus and add_LostFocus are unsafe methods.
     unsafe {
       let id = webview.inner.window().id();
       if let WindowHandle::Webview(ref webview) = webview.inner {
