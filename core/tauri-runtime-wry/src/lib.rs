@@ -25,8 +25,9 @@ use tauri_runtime::{
 use tauri_runtime::window::MenuEvent;
 #[cfg(feature = "system-tray")]
 use tauri_runtime::{SystemTray, SystemTrayEvent};
+use webview2_com::FocusChangedEventHandler;
 #[cfg(windows)]
-use winapi::shared::windef::HWND;
+use webview2_com::Windows::Win32::Foundation::HWND;
 #[cfg(all(feature = "system-tray", target_os = "macos"))]
 use wry::application::platform::macos::{SystemTrayBuilderExtMacOS, SystemTrayExtMacOS};
 #[cfg(target_os = "linux")]
@@ -100,6 +101,7 @@ use std::{
 
 #[cfg(feature = "system-tray")]
 mod system_tray;
+use std::ptr::null_mut;
 #[cfg(feature = "system-tray")]
 use system_tray::*;
 
@@ -1629,29 +1631,35 @@ impl Runtime for Wry {
     )?;
 
     #[cfg(target_os = "windows")]
-    {
+    unsafe {
       let id = webview.inner.window().id();
       if let WindowHandle::Webview(ref webview) = webview.inner {
         if let Some(controller) = webview.controller() {
           let proxy = self.event_loop.create_proxy();
           controller
-            .add_got_focus(move |_| {
-              let _ = proxy.send_event(Message::Webview(
-                id,
-                WebviewMessage::WebviewEvent(WebviewEvent::Focused(true)),
-              ));
-              Ok(())
-            })
+            .add_GotFocus(
+              FocusChangedEventHandler::create(Box::new(move |_, _| {
+                let _ = proxy.send_event(Message::Webview(
+                  id,
+                  WebviewMessage::WebviewEvent(WebviewEvent::Focused(true)),
+                ));
+                Ok(())
+              })),
+              null_mut(),
+            )
             .unwrap();
           let proxy = self.event_loop.create_proxy();
           controller
-            .add_lost_focus(move |_| {
-              let _ = proxy.send_event(Message::Webview(
-                id,
-                WebviewMessage::WebviewEvent(WebviewEvent::Focused(false)),
-              ));
-              Ok(())
-            })
+            .add_LostFocus(
+              FocusChangedEventHandler::create(Box::new(move |_, _| {
+                let _ = proxy.send_event(Message::Webview(
+                  id,
+                  WebviewMessage::WebviewEvent(WebviewEvent::Focused(false)),
+                ));
+                Ok(())
+              })),
+              null_mut(),
+            )
             .unwrap();
         }
       }
@@ -2024,7 +2032,7 @@ fn handle_event_loop(
             #[cfg(target_os = "macos")]
             WindowMessage::NSWindow(tx) => tx.send(NSWindow(window.ns_window())).unwrap(),
             #[cfg(windows)]
-            WindowMessage::Hwnd(tx) => tx.send(Hwnd(window.hwnd() as HWND)).unwrap(),
+            WindowMessage::Hwnd(tx) => tx.send(Hwnd(window.hwnd())).unwrap(),
             #[cfg(any(
               target_os = "linux",
               target_os = "dragonfly",

@@ -526,7 +526,8 @@ impl<R: Runtime> Window<R> {
       .window
       .dispatcher
       .hwnd()
-      .map(|hwnd| hwnd as *mut _)
+      // This is used for rfd dialog and it expects a raw pointer instead of a struct
+      .map(|hwnd| unsafe { std::mem::transmute(hwnd) })
       .map_err(Into::into)
   }
 

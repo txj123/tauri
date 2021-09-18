@@ -13,6 +13,7 @@ readme = "README.md"
 
 [dependencies]
 #wry = { version = "0.12", default-features = false, features = [ "file-drop", "protocol" ] }
+#wry = { git = "https://github.com/wravery/wry", commit = "cdd6981" }
 wry = { path = "../../../wry", default-features = false, features = [ "file-drop", "protocol" ] }
 tauri-runtime = { version = "0.2.1", path = "../tauri-runtime" }
 tauri-utils = { version = "1.0.0-beta.3", path = "../tauri-utils" }
@@ -21,6 +22,7 @@ infer = "0.4"
 
 [target."cfg(windows)".dependencies]
 ico = "0.1"
+webview2-com = "0.4.0"
 
 [target."cfg(any(target_os = \"linux\", target_os = \"dragonfly\", target_os = \"freebsd\", target_os = \"openbsd\", target_os = \"netbsd\"))".dependencies]
 png = "0.16"
