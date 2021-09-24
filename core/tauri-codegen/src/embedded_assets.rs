@@ -157,12 +157,7 @@ impl EmbeddedAssets {
 
   /// Use highest compression level for release, the fastest one for everything else
   fn compression_level() -> i32 {
-    let levels = zstd::compression_level_range();
-    if cfg!(debug_assertions) {
-      *levels.start()
-    } else {
-      *levels.end()
-    }
+    zstd::DEFAULT_COMPRESSION_LEVEL
   }
 
   /// Compress a file and spit out the information in a [`HashMap`] friendly form.
