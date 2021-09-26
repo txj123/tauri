@@ -83,6 +83,8 @@ embed_plist = "1.2"
 cfg_aliases = "0.1.1"
 
 [dev-dependencies]
+webview2-com-sys = "0.5"
+tao = { git = "https://github.com/tauri-apps/tao", branch = "next"}
 proptest = "1.0.0"
 serde_json = "1.0"
 tauri = { path = "." }

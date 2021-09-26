@@ -36,8 +36,50 @@ fn window_label(window: Window) {
 // Async commands
 
 #[command]
-async fn async_simple_command(argument: String) {
-  println!("{}", argument);
+pub(crate) async fn async_simple_command(app: tauri::AppHandle) -> tauri::Result<()> {
+  const WINDOW_NAME: &str = "mnemonic_window";
+
+  use tao::platform::windows::WindowExtWindows;
+  use webview2_com_sys::Windows::Win32::{
+    Foundation::{HWND, HINSTANCE, LPARAM, LRESULT, POINT, PSTR, PWSTR, WPARAM},
+    System::LibraryLoader::*,
+    UI::{
+      Shell::*,
+      WindowsAndMessaging::{self as win32wm, *},
+    },
+  };
+
+  let window = app.create_tao_window(move || {
+    let w = tao::window::WindowBuilder::new()
+        .with_always_on_top(true)
+        .with_title("Create a tao window")
+        .with_resizable(false)
+        .with_inner_size(tao::dpi::LogicalSize::new(300, 300));
+
+    (WINDOW_NAME.to_string(), w)
+  })?.upgrade().unwrap();
+
+  let hwnd = HWND(window.hwnd() as _);
+  let hinstance = HINSTANCE(window.hinstance() as _);
+
+  unsafe {
+    let handle = CreateWindowExW(
+      WINDOW_EX_STYLE(0),
+      "BUTTON",
+      "OK",
+      WS_TABSTOP | WS_VISIBLE | WS_CHILD | WINDOW_STYLE(BS_DEFPUSHBUTTON as _),
+      10,
+      10,
+      100,
+      100,
+      hwnd,
+      HMENU::default(),
+      hinstance,
+      std::ptr::null_mut(),
+    );
+  }
+
+  Ok(())
 }
 
 #[command]
